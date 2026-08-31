@@ -1,0 +1,110 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:4.4.18
+    volumes:
+      - mongodb_data_staging:/data/db
+    networks:
+      - ecommerce_net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || mongo --quiet --eval 'db.adminCommand(\"ping\").ok'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  auth-service:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/auth-service:${IMAGE_TAG:-latest}
+    networks:
+      - ecommerce_net
+    secrets:
+      - jwt_secret
+    environment:
+      - APP_ENV=staging
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/auth_staging
+      - JWT_SECRET=/run/secrets/jwt_secret
+      - CORS_ORIGIN=${STAGING_CORS_ORIGIN:-http://localhost:8081}
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  product-service:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/product-service:${IMAGE_TAG:-latest}
+    networks:
+      - ecommerce_net
+    environment:
+      - APP_ENV=staging
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/products_staging
+      - CORS_ORIGIN=${STAGING_CORS_ORIGIN:-http://localhost:8081}
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  order-service:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/order-service:${IMAGE_TAG:-latest}
+    networks:
+      - ecommerce_net
+    secrets:
+      - jwt_secret
+    environment:
+      - APP_ENV=staging
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/orders_staging
+      - PRODUCT_SERVICE_URL=http://product-service:3000
+      - JWT_SECRET=/run/secrets/jwt_secret
+      - CORS_ORIGIN=${STAGING_CORS_ORIGIN:-http://localhost:8081}
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  frontend:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/frontend:${IMAGE_TAG:-latest}
+    networks:
+      - ecommerce_net
+    ports:
+      - "${STAGING_FRONTEND_PORT:-8081}:8080"
+    environment:
+      - APP_ENV=staging
+      - NODE_ENV=production
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PRODUCT_SERVICE_URL=http://product-service:3000
+      - ORDER_SERVICE_URL=http://order-service:3002
+      - PORT=8080
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  mongodb_data_staging:
+
+networks:
+  ecommerce_net:
+    driver: overlay
+
+secrets:
+  jwt_secret:
+    external: true

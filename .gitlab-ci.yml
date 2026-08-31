@@ -1,0 +1,194 @@
+stages:
+  - test
+  - build
+  - scan
+  - deploy
+
+default:
+  tags:
+    - swarm-manager
+
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_TLS_CERTDIR: ""
+  TRIVY_NO_PROGRESS: "true"
+
+.test_service:
+  stage: test
+  image: node:20-bookworm-slim
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "staging" || $CI_COMMIT_BRANCH =~ /^(feature|bugfix|hotfix)\/.*$/ || $CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - echo "Running tests for $SERVICE_NAME..."
+    - cd "$SERVICE_DIR"
+    - npm ci
+    - npm test
+
+test_frontend:
+  extends: .test_service
+  variables:
+    SERVICE_NAME: "frontend"
+    SERVICE_DIR: "frontend"
+
+test_auth:
+  extends: .test_service
+  variables:
+    SERVICE_NAME: "auth-service"
+    SERVICE_DIR: "services/auth-service"
+
+test_product:
+  extends: .test_service
+  variables:
+    SERVICE_NAME: "product-service"
+    SERVICE_DIR: "services/product-service"
+
+test_order:
+  extends: .test_service
+  variables:
+    SERVICE_NAME: "order-service"
+    SERVICE_DIR: "services/order-service"
+
+.build_service:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "staging" || $CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - echo "Building $SERVICE_NAME Docker image..."
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "dev" ]; then
+        BUILD_TARGET="development"
+      elif [ "$CI_COMMIT_BRANCH" = "staging" ]; then
+        BUILD_TARGET="staging"
+      else
+        BUILD_TARGET="production"
+      fi
+      docker build --target "$BUILD_TARGET" -t "$CI_REGISTRY_IMAGE/$SERVICE_NAME:$CI_COMMIT_SHA" "$SERVICE_DIR"
+      docker push "$CI_REGISTRY_IMAGE/$SERVICE_NAME:$CI_COMMIT_SHA"
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        docker tag "$CI_REGISTRY_IMAGE/$SERVICE_NAME:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE/$SERVICE_NAME:latest"
+        docker push "$CI_REGISTRY_IMAGE/$SERVICE_NAME:latest"
+      fi
+
+build_frontend:
+  extends: .build_service
+  variables:
+    SERVICE_NAME: "frontend"
+    SERVICE_DIR: "frontend"
+
+build_auth:
+  extends: .build_service
+  variables:
+    SERVICE_NAME: "auth-service"
+    SERVICE_DIR: "services/auth-service"
+
+build_product:
+  extends: .build_service
+  variables:
+    SERVICE_NAME: "product-service"
+    SERVICE_DIR: "services/product-service"
+
+build_order:
+  extends: .build_service
+  variables:
+    SERVICE_NAME: "order-service"
+    SERVICE_DIR: "services/order-service"
+
+scan_trivy:
+  stage: scan
+  image: aquasec/trivy:latest
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "staging"'
+  script:
+    - echo "Scanning images with Trivy..."
+    - trivy image --no-progress --severity HIGH,CRITICAL "$CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA"
+    - trivy image --no-progress --severity HIGH,CRITICAL "$CI_REGISTRY_IMAGE/auth-service:$CI_COMMIT_SHA"
+    - trivy image --no-progress --severity HIGH,CRITICAL "$CI_REGISTRY_IMAGE/product-service:$CI_COMMIT_SHA"
+    - trivy image --no-progress --severity HIGH,CRITICAL "$CI_REGISTRY_IMAGE/order-service:$CI_COMMIT_SHA"
+
+.swarm_deploy:
+  stage: deploy
+  image: docker:24
+  when: manual
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - export IMAGE_TAG="$CI_COMMIT_SHA"
+    - echo "Preflight checks: checking manifests and pulling images for tag $IMAGE_TAG..."
+    - |
+      for svc in frontend auth-service product-service order-service; do
+        docker manifest inspect "$CI_REGISTRY_IMAGE/$svc:$IMAGE_TAG" > /dev/null
+        docker pull "$CI_REGISTRY_IMAGE/$svc:$IMAGE_TAG"
+      done
+    - export DEPLOY_HOST="${DEPLOY_HOST:-$(docker info -f '{{.Swarm.NodeAddr}}' 2>/dev/null || hostname -I | awk '{print $1}')}"
+    - export DEV_FRONTEND_PORT="${DEV_FRONTEND_PORT:-8082}"
+    - export DEV_CORS_ORIGIN="${DEV_CORS_ORIGIN:-http://${DEPLOY_HOST}:${DEV_FRONTEND_PORT}}"
+    - export STAGING_FRONTEND_PORT="${STAGING_FRONTEND_PORT:-8081}"
+    - export STAGING_CORS_ORIGIN="${STAGING_CORS_ORIGIN:-http://${DEPLOY_HOST}:${STAGING_FRONTEND_PORT}}"
+    - echo "Ensuring Docker secret jwt_secret exists..."
+    - printf "%s" "${JWT_SECRET:-super_secure_jwt_secret_key_for_production_and_staging}" | docker secret create jwt_secret - 2>/dev/null || true
+    - echo "Deploying stack $STACK_NAME using compose file $COMPOSE_FILE..."
+    - docker stack deploy --with-registry-auth -c "$COMPOSE_FILE" "$STACK_NAME"
+    - echo "Waiting for stack $STACK_NAME convergence..."
+    - |
+      timeout=180
+      elapsed=0
+      while [ $elapsed -lt $timeout ]; do
+        docker service ps --no-trunc "${STACK_NAME}_mongodb" "${STACK_NAME}_auth-service" "${STACK_NAME}_product-service" "${STACK_NAME}_order-service" "${STACK_NAME}_frontend" || true
+        if docker stack services "$STACK_NAME" | grep -v NAME | awk '{split($3,a,"/"); if (a[1] != a[2]) exit 1}'; then
+          echo "All services converged successfully."
+          break
+        fi
+        sleep 10
+        elapsed=$((elapsed+10))
+      done
+    - docker stack services "$STACK_NAME" || true
+    - echo "Testing public endpoints at http://${DEPLOY_HOST}:${FRONTEND_PORT}..."
+    - wget --spider -q "http://${DEPLOY_HOST}:${FRONTEND_PORT}/health" || (docker service ps --no-trunc "${STACK_NAME}_frontend" && exit 1)
+    - wget --spider -q "http://${DEPLOY_HOST}:${FRONTEND_PORT}/api/products" || (docker service ps --no-trunc "${STACK_NAME}_product-service" && exit 1)
+
+deploy_dev:
+  extends: .swarm_deploy
+  environment:
+    name: development
+    url: http://$DEPLOY_HOST:$DEV_FRONTEND_PORT
+  variables:
+    COMPOSE_FILE: "docker-compose.dev.yml"
+    STACK_NAME: "e-commerce-dev"
+    FRONTEND_PORT: "$DEV_FRONTEND_PORT"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+      when: manual
+
+deploy_staging:
+  extends: .swarm_deploy
+  environment:
+    name: staging
+    url: http://$DEPLOY_HOST:$STAGING_FRONTEND_PORT
+  variables:
+    COMPOSE_FILE: "docker-compose.staging.yml"
+    STACK_NAME: "e-commerce-staging"
+    FRONTEND_PORT: "$STAGING_FRONTEND_PORT"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "staging"'
+      when: manual
+
+deploy_production:
+  extends: .swarm_deploy
+  environment:
+    name: production
+    url: http://$DEPLOY_HOST:8080
+  variables:
+    COMPOSE_FILE: "docker-compose.prod.yml"
+    STACK_NAME: "e-commerce"
+    FRONTEND_PORT: "8080"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual

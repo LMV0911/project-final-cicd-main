@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:4.4.18
+    volumes:
+      - mongodb_data_dev:/data/db
+    networks:
+      - ecommerce_net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' || mongo --quiet --eval 'db.adminCommand(\"ping\").ok'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  auth-service:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/auth-service:${IMAGE_TAG:-latest}
+    build:
+      context: ./services/auth-service
+      target: development
+    networks:
+      - ecommerce_net
+    environment:
+      - APP_ENV=development
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/auth_dev
+      - JWT_SECRET=${DEV_JWT_SECRET:-dev_jwt_secret_change_me}
+      - CORS_ORIGIN=${DEV_CORS_ORIGIN:-http://localhost:8082}
+    deploy:
+      replicas: 1
+
+  product-service:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/product-service:${IMAGE_TAG:-latest}
+    build:
+      context: ./services/product-service
+      target: development
+    networks:
+      - ecommerce_net
+    environment:
+      - APP_ENV=development
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/products_dev
+      - CORS_ORIGIN=${DEV_CORS_ORIGIN:-http://localhost:8082}
+    deploy:
+      replicas: 1
+
+  order-service:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/order-service:${IMAGE_TAG:-latest}
+    build:
+      context: ./services/order-service
+      target: development
+    networks:
+      - ecommerce_net
+    environment:
+      - APP_ENV=development
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/orders_dev
+      - PRODUCT_SERVICE_URL=http://product-service:3000
+      - JWT_SECRET=${DEV_JWT_SECRET:-dev_jwt_secret_change_me}
+      - CORS_ORIGIN=${DEV_CORS_ORIGIN:-http://localhost:8082}
+    deploy:
+      replicas: 1
+
+  frontend:
+    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/frontend:${IMAGE_TAG:-latest}
+    build:
+      context: ./frontend
+      target: development
+    networks:
+      - ecommerce_net
+    ports:
+      - "${DEV_FRONTEND_PORT:-8082}:8080"
+    environment:
+      - APP_ENV=development
+      - NODE_ENV=production
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PRODUCT_SERVICE_URL=http://product-service:3000
+      - ORDER_SERVICE_URL=http://order-service:3002
+      - PORT=8080
+    deploy:
+      replicas: 1
+
+volumes:
+  mongodb_data_dev:
+
+networks:
+  ecommerce_net:
+    driver: overlay
