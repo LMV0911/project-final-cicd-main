@@ -1,0 +1,85 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "dev", "staging" ]
+  pull_request:
+    branches: [ "main", "dev", "staging" ]
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm test
+
+      - name: Test Auth Service
+        run: |
+          cd services/auth-service
+          npm ci
+          npm test
+
+      - name: Test Product Service
+        run: |
+          cd services/product-service
+          npm ci
+          npm test
+
+      - name: Test Order Service
+        run: |
+          cd services/order-service
+          npm ci
+          npm test
+
+  build:
+    name: Build Multi-Stage Docker Images
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Frontend Image
+        run: docker build --target production -t ecommerce/frontend:latest ./frontend
+
+      - name: Build Auth Service Image
+        run: docker build --target production -t ecommerce/auth-service:latest ./services/auth-service
+
+      - name: Build Product Service Image
+        run: docker build --target production -t ecommerce/product-service:latest ./services/product-service
+
+      - name: Build Order Service Image
+        run: docker build --target production -t ecommerce/order-service:latest ./services/order-service
+
+  security_scan:
+    name: Trivy Security Vulnerability Scan
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Backend Image for Scan
+        run: docker build --target production -t ecommerce/auth-service:latest ./services/auth-service
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ecommerce/auth-service:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
