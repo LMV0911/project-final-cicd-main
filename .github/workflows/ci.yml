@@ -2,14 +2,27 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "develop", "staging" ]
+    branches: ["main", "develop", "staging"]
   pull_request:
-    branches: [ "main", "develop", "staging" ]
+    branches: ["main", "develop", "staging"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
   test:
     name: Run Unit Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          [
+            frontend,
+            services/auth-service,
+            services/product-service,
+            services/order-service,
+          ]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -17,69 +30,123 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
-      - name: Test Frontend
+      - name: Install and Test
+        working-directory: ${{ matrix.service }}
         run: |
-          cd frontend
           npm ci
           npm test
 
-      - name: Test Auth Service
-        run: |
-          cd services/auth-service
-          npm ci
-          npm test
-
-      - name: Test Product Service
-        run: |
-          cd services/product-service
-          npm ci
-          npm test
-
-      - name: Test Order Service
-        run: |
-          cd services/order-service
-          npm ci
-          npm test
-
-  build:
-    name: Build Multi-Stage Docker Images
+  build_and_push:
+    name: Build & Push Images
     needs: test
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - dir: frontend
+            image: frontend
+          - dir: services/auth-service
+            image: auth-service
+          - dir: services/product-service
+            image: product-service
+          - dir: services/order-service
+            image: order-service
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build Frontend Image
-        run: docker build --target production -t ecommerce/frontend:latest ./frontend
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Auth Service Image
-        run: docker build --target production -t ecommerce/auth-service:latest ./services/auth-service
+      - name: Set lowercase repository name
+        run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
-      - name: Build Product Service Image
-        run: docker build --target production -t ecommerce/product-service:latest ./services/product-service
+      - name: Build and Push
+        run: |
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.REPO_LC }}/${{ matrix.image }}"
+          SHA_TAG="$IMAGE_NAME:${{ github.sha }}"
 
-      - name: Build Order Service Image
-        run: docker build --target production -t ecommerce/order-service:latest ./services/order-service
+          docker build --target production -t $SHA_TAG ${{ matrix.dir }}
+          docker push $SHA_TAG
 
-  security_scan:
-    name: Trivy Security Vulnerability Scan
-    needs: build
+          # Ajoute le tag latest si on est sur la branche main
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag $SHA_TAG $IMAGE_NAME:latest
+            docker push $IMAGE_NAME:latest
+          fi
+
+  scan:
+    name: Trivy Security Scan
+    needs: build_and_push
     runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        image: [frontend, auth-service, product-service, order-service]
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Build Backend Image for Scan
-        run: docker build --target production -t ecommerce/auth-service:latest ./services/auth-service
+      - name: Set lowercase repository name
+        run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
       - name: Run Trivy Vulnerability Scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'ecommerce/auth-service:latest'
-          format: 'table'
-          exit-code: '0'
+          image-ref: "${{ env.REGISTRY }}/${{ env.REPO_LC }}/${{ matrix.image }}:${{ github.sha }}"
+          format: "table"
           ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy_dev:
+    name: Deploy to Dev
+    needs: scan
+    runs-on: [self-hosted, swarm-manager]
+    environment: development
+    if: github.ref == 'refs/heads/dev'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Deploy Swarm Stack
+        run: |
+          export IMAGE_TAG=${{ github.sha }}
+          docker stack deploy -c docker-compose.dev.yml e-commerce-dev
+
+  deploy_staging:
+    name: Deploy to Staging
+    needs: scan
+    runs-on: [self-hosted, swarm-manager]
+    environment: staging
+    if: github.ref == 'refs/heads/staging'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Deploy Swarm Stack
+        run: |
+          export IMAGE_TAG=${{ github.sha }}
+          docker stack deploy -c docker-compose.staging.yml e-commerce-staging
+
+  deploy_production:
+    name: Deploy to Production
+    needs: scan
+    runs-on: [self-hosted, swarm-manager]
+    environment: production
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Deploy Swarm Stack
+        run: |
+          export IMAGE_TAG=${{ github.sha }}
+          docker stack deploy -c docker-compose.prod.yml e-commerce
