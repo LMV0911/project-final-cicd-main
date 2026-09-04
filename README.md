@@ -453,6 +453,9 @@ Les variables GitLab suivantes sont fournies automatiquement par GitLab :
 | `scripts/init-products.sh` | Insere les produits de demonstration via l'API product-service de maniere idempotente.   |
 | `scripts/run-tests.sh`     | Execute les tests frontend et backend.                                                   |
 | `scripts/deploy.sh`        | Deploie la stack Swarm avec `docker stack deploy`.                                       |
+| `scripts/backup-mongodb.sh`| Sauvegarde a chaud les BDD MongoDB avec mongodump, compresse en tar.gz et applique la retention. |
+| `scripts/restore-mongodb.sh`| Restaure les BDD MongoDB avec mongorestore (--drop) depuis une archive de sauvegarde.   |
+| `scripts/autoscale-swarm.sh`| Surveille la charge CPU/RAM Swarm et ajuste dynamiquement les repliques (HPA Swarm).    |
 
 ## Depannage
 

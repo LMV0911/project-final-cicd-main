@@ -18,6 +18,13 @@ services:
       placement:
         constraints:
           - node.role == manager
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   auth-service:
     image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/auth-service:${IMAGE_TAG:-latest}
@@ -36,8 +43,24 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 15s
+        max_failure_ratio: 0.2
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        monitor: 10s
       restart_policy:
         condition: on-failure
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
 
   product-service:
     image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/product-service:${IMAGE_TAG:-latest}
@@ -53,8 +76,24 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 15s
+        max_failure_ratio: 0.2
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        monitor: 10s
       restart_policy:
         condition: on-failure
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
 
   order-service:
     image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/order-service:${IMAGE_TAG:-latest}
@@ -74,8 +113,24 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 15s
+        max_failure_ratio: 0.2
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        monitor: 10s
       restart_policy:
         condition: on-failure
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
 
   frontend:
     image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/frontend:${IMAGE_TAG:-latest}
@@ -95,8 +150,24 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 15s
+        max_failure_ratio: 0.2
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
+        monitor: 10s
       restart_policy:
         condition: on-failure
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
 
 volumes:
   mongodb_data_prod:
