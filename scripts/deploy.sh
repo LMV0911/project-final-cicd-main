@@ -75,5 +75,5 @@ PRODUCT_API_URL="http://localhost:8080/api" ./scripts/init-products.sh || true
 info "================================================================="
 info "✅ Deploiement termine avec succes !"
 info "🌐 Acces Web HTTP  : http://localhost:8080"
-info "🔒 Acces Web HTTPS : https://localhost (ou https://app.local)"
+info "🔒 Acces Web HTTPS : https://localhost (port 443) ou https://127.0.0.1:8443 (ou https://app.local)"
 info "================================================================="

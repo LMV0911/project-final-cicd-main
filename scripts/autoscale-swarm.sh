@@ -5,7 +5,7 @@
 # ==============================================================================
 set -euo pipefail
 
-SERVICE_NAME="${1:-e-commerce_frontend}"
+SERVICE_NAME="${SERVICE_NAME:-e-commerce_frontend}"
 MIN_REPLICAS="${MIN_REPLICAS:-3}"
 MAX_REPLICAS="${MAX_REPLICAS:-8}"
 CPU_UP_THRESHOLD="${CPU_UP_THRESHOLD:-75}"
