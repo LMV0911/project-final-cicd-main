@@ -1,5 +1,7 @@
 # E-Commerce Microservices
 
+[![CI/CD Pipeline](https://github.com/LMV0911/project-final-cicd-main/actions/workflows/ci.yml/badge.svg)](https://github.com/LMV0911/project-final-cicd-main/actions/workflows/ci.yml)
+
 Application e-commerce pédagogique composée d'un frontend Vue/Vite et de trois backends Node.js/Express/Mongoose, déployée avec Docker Compose en local et Docker Swarm en dev, staging et production.
 
 ---
