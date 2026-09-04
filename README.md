@@ -2,7 +2,34 @@
 
 Application e-commerce pédagogique composée d'un frontend Vue/Vite et de trois backends Node.js/Express/Mongoose, déployée avec Docker Compose en local et Docker Swarm en dev, staging et production.
 
-## Sommaire
+---
+
+## ⚡ Démarrage Rapide (Sans pré-requis)
+
+Conformément aux exigences du sujet (*« Si je clone votre repo, je puisse le lancer sans pré-requis particulier dans mon propre cluster en suivant votre documentation »*) :
+
+```bash
+git clone https://github.com/LMV0911/project-final-cicd-main.git
+cd project-final-cicd-main
+
+# Déploiement automatique complet en 1 commande :
+chmod +x scripts/*.sh
+./scripts/deploy.sh
+```
+
+Ce script unique et autonome :
+1. Initialise Docker Swarm s'il n'est pas encore actif.
+2. Crée automatiquement le Docker secret `jwt_secret`.
+3. Compile les images de production multi-stage (`ecommerce/*:latest`) si elles ne sont pas déjà en cache.
+4. Déploie la stack applicative (`docker-compose.prod.yml`) avec répliques et limites de ressources.
+5. Déploie le reverse-proxy Nginx (`docker-compose.proxy.yml`) avec SSL auto-signé.
+6. Initialise la base de données produits via `./scripts/init-products.sh`.
+
+Accès immédiat :
+- **HTTP :** `http://localhost:8080`
+- **HTTPS :** `https://localhost` (ou `https://app.local`)
+
+---
 
 - [Architecture](#architecture)
 - [Base de donnees MongoDB](#base-de-donnees-mongodb)

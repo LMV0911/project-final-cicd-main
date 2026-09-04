@@ -27,7 +27,7 @@ services:
           memory: 128M
 
   auth-service:
-    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/auth-service:${IMAGE_TAG:-latest}
+    image: ${CI_REGISTRY_IMAGE:-ecommerce}/auth-service:${IMAGE_TAG:-latest}
     networks:
       - ecommerce_net
     secrets:
@@ -63,7 +63,7 @@ services:
           memory: 64M
 
   product-service:
-    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/product-service:${IMAGE_TAG:-latest}
+    image: ${CI_REGISTRY_IMAGE:-ecommerce}/product-service:${IMAGE_TAG:-latest}
     networks:
       - ecommerce_net
     environment:
@@ -96,7 +96,7 @@ services:
           memory: 64M
 
   order-service:
-    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/order-service:${IMAGE_TAG:-latest}
+    image: ${CI_REGISTRY_IMAGE:-ecommerce}/order-service:${IMAGE_TAG:-latest}
     networks:
       - ecommerce_net
     secrets:
@@ -133,7 +133,7 @@ services:
           memory: 64M
 
   frontend:
-    image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/group/project}/frontend:${IMAGE_TAG:-latest}
+    image: ${CI_REGISTRY_IMAGE:-ecommerce}/frontend:${IMAGE_TAG:-latest}
     networks:
       - ecommerce_net
     ports:
